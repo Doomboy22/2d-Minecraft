@@ -209,6 +209,50 @@
             overflow-y: auto;
         }
 
+        #furnaceMenu {
+            display: none;
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.85);
+            z-index: 60;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            pointer-events: auto;
+        }
+
+        .furnace-ui {
+            background: #C6C6C6;
+            padding: 20px;
+            border: 4px solid #555;
+            border-radius: 4px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 20px;
+        }
+
+        .furnace-slots {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+
+        .furnace-input {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .furnace-arrow {
+            font-size: 24px;
+            font-weight: bold;
+            color: #333;
+        }
+
         .craft-btn {
             background: #8b8b8b;
             border: 2px solid #555;
@@ -360,6 +404,21 @@
         <div class="btn" onclick="toggleInventory()">CLOSE (E)</div>
     </div>
 
+    <div id="furnaceMenu">
+        <h2 style="color:white; margin-bottom: 10px;">FURNACE</h2>
+        <div class="furnace-ui">
+            <div class="furnace-slots">
+                <div class="furnace-input">
+                    <div id="furnaceTopSlot"></div>
+                    <div id="furnaceBottomSlot"></div>
+                </div>
+                <div class="furnace-arrow">→</div>
+                <div id="furnaceResultSlot"></div>
+            </div>
+        </div>
+        <div class="btn" onclick="toggleFurnace()">CLOSE (E)</div>
+    </div>
+
     <canvas id="gameCanvas"></canvas>
 
     <script>
@@ -370,7 +429,12 @@
         let GAME_MODE = 'survival';
         let isRunning = false;
         let isInventoryOpen = false;
+        let isFurnaceOpen = false;
+        let activeFurnacePos = null;
         let heldItemIndex = -1;
+        let furnaceHeldItemIndex = -1; // -1 none, 0 top, 1 bottom, 2 result
+        let furnaceInventory = [{ id: 0, count: 0 }, { id: 0, count: 0 }, { id: 0, count: 0 }];
+        let furnaceSmeltTimer = 0;
         let miningState = { active: false, x: -1, y: -1, progress: 0, targetId: 0 };
         let gameTime = 6000;
         const DAY_LENGTH = 24000;
@@ -412,6 +476,10 @@
             22: { color: '#FFDAB9', name: 'Raw Chicken', food: 2 },
             23: { color: '#556B2F', name: 'Rotten Flesh', food: 1 },
             24: { color: '#FF0000', name: 'Bed', hardness: 10 },
+            25: { color: '#555555', name: 'Furnace', hardness: 50 },
+            26: { color: '#E6E6FA', name: 'Iron Ingot' },
+            27: { color: '#FFD700', name: 'Gold Ingot' },
+            28: { color: '#B87333', name: 'Copper Ingot' },
             99: { color: '#000000', name: 'Bedrock', hardness: Infinity }
         };
 
@@ -423,7 +491,8 @@
             { out: 3, count: 1, costs: [{ id: 9, count: 1 }] },
             { out: 8, count: 1, costs: [{ id: 2, count: 2 }] },
             { out: 5, count: 1, costs: [{ id: 10, count: 1 }] },
-            { out: 24, count: 1, costs: [{ id: 7, count: 3 }, { id: 21, count: 3 }] }
+            { out: 24, count: 1, costs: [{ id: 7, count: 3 }, { id: 21, count: 3 }] },
+            { out: 25, count: 1, costs: [{ id: 9, count: 8 }] }
         ];
 
         let inventory = [];
@@ -467,7 +536,7 @@
             }
 
             inventory = [];
-            let creativeItems = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24];
+            let creativeItems = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28];
             for (let i = 0; i < TOTAL_SLOTS; i++) {
                 if (mode === 'creative' && i < creativeItems.length) {
                     inventory.push({ id: creativeItems[i], count: 999 });
@@ -578,10 +647,21 @@
 
         function toggleInventory() {
             if (!isRunning) return;
+            if (isFurnaceOpen) toggleFurnace();
             isInventoryOpen = !isInventoryOpen; heldItemIndex = -1; miningState.active = false;
             const menu = document.getElementById('inventoryMenu');
             document.getElementById('tooltip').style.display = 'none';
             if (isInventoryOpen) { menu.style.display = 'flex'; renderInventoryMenu(); }
+            else { menu.style.display = 'none'; updateHUD(); }
+        }
+
+        function toggleFurnace() {
+            if (!isRunning) return;
+            if (isInventoryOpen) toggleInventory();
+            isFurnaceOpen = !isFurnaceOpen; furnaceHeldItemIndex = -1; miningState.active = false;
+            const menu = document.getElementById('furnaceMenu');
+            document.getElementById('tooltip').style.display = 'none';
+            if (isFurnaceOpen) { menu.style.display = 'flex'; renderFurnaceMenu(); }
             else { menu.style.display = 'none'; updateHUD(); }
         }
 
@@ -761,8 +841,12 @@
         // --- Inputs ---
         window.addEventListener('keydown', (e) => {
             if (!isRunning) return;
-            if (e.code === 'KeyE') { toggleInventory(); return; }
-            if (isInventoryOpen) return;
+            if (e.code === 'KeyE' || e.code === 'Escape') {
+                if (isFurnaceOpen) { toggleFurnace(); return; }
+                if (isInventoryOpen) { toggleInventory(); return; }
+                if (e.code === 'KeyE') { toggleInventory(); return; }
+            }
+            if (isInventoryOpen || isFurnaceOpen) return;
             keys[e.code] = true;
             if (e.key === 'Shift') mouse.shift = true;
             if (e.key >= 1 && e.key <= 9) { selectedSlotIndex = parseInt(e.key) - 1; updateHUD(); }
@@ -773,7 +857,7 @@
         });
         window.addEventListener('keyup', (e) => { keys[e.code] = false; if (e.key === 'Shift') mouse.shift = false; });
         window.addEventListener('wheel', (e) => {
-            if (!isRunning || isInventoryOpen) return;
+            if (!isRunning || isInventoryOpen || isFurnaceOpen) return;
             if (e.deltaY > 0) selectedSlotIndex = (selectedSlotIndex + 1) % HOTBAR_SIZE;
             else selectedSlotIndex = (selectedSlotIndex - 1 + HOTBAR_SIZE) % HOTBAR_SIZE;
             updateHUD();
@@ -847,7 +931,7 @@
         }
 
         function update() {
-            if (isInventoryOpen) return;
+            if (isInventoryOpen || isFurnaceOpen) return;
             updatePlayerStats();
 
             gameTime = (gameTime + 1) % DAY_LENGTH;
@@ -924,7 +1008,7 @@
             return false;
         }
         function tryStartMining() {
-            if (!isRunning || isInventoryOpen || player.spectator) return;
+            if (!isRunning || isInventoryOpen || isFurnaceOpen || player.spectator) return;
             let tile = getMouseTile(); if (!isWithinReach(tile.x, tile.y)) return;
             let targetArray = mouse.shift ? backWorld : world;
             if (tile.x >= 0 && tile.x < WORLD_WIDTH && tile.y >= 0 && tile.y < WORLD_HEIGHT) {
@@ -954,12 +1038,22 @@
             }
         }
         function handleRightClick() {
+            let tile = getMouseTile();
+            if (isWithinReach(tile.x, tile.y) && tile.x >= 0 && tile.x < WORLD_WIDTH && tile.y >= 0 && tile.y < WORLD_HEIGHT) {
+                let targetArray = mouse.shift ? backWorld : world;
+                if (targetArray[tile.x][tile.y] === 25 && !mouse.shift) { // Furnace Click
+                    activeFurnacePos = { x: tile.x, y: tile.y };
+                    toggleFurnace();
+                    return;
+                }
+            }
+
             const slot = inventory[selectedSlotIndex];
             if (slot.id !== 0 && BLOCKS[slot.id].food) { eatFood(); return; }
             handlePlace();
         }
         function handlePlace() {
-            if (!isRunning || isInventoryOpen || player.spectator) return;
+            if (!isRunning || isInventoryOpen || isFurnaceOpen || player.spectator) return;
             let tile = getMouseTile(); if (!isWithinReach(tile.x, tile.y)) return;
             let targetArray = mouse.shift ? backWorld : world;
             if (tile.x >= 0 && tile.x < WORLD_WIDTH && tile.y >= 0 && tile.y < WORLD_HEIGHT) {
