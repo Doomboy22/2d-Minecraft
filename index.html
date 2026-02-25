@@ -665,6 +665,45 @@
             else { menu.style.display = 'none'; updateHUD(); }
         }
 
+        function renderFurnaceMenu() {
+            const topEl = document.getElementById('furnaceTopSlot'); topEl.innerHTML = '';
+            const bottomEl = document.getElementById('furnaceBottomSlot'); bottomEl.innerHTML = '';
+            const resultEl = document.getElementById('furnaceResultSlot'); resultEl.innerHTML = '';
+
+            let topSlot = createSlotElement(furnaceInventory[0], -1);
+            if (furnaceHeldItemIndex === 0) topSlot.classList.add('held-item');
+            topSlot.onclick = () => handleFurnaceClick(0);
+            topEl.appendChild(topSlot);
+
+            let bottomSlot = createSlotElement(furnaceInventory[1], -1);
+            if (furnaceHeldItemIndex === 1) bottomSlot.classList.add('held-item');
+            bottomSlot.onclick = () => handleFurnaceClick(1);
+            bottomEl.appendChild(bottomSlot);
+
+            let resultSlot = createSlotElement(furnaceInventory[2], -1);
+            if (furnaceHeldItemIndex === 2) resultSlot.classList.add('held-item');
+            resultSlot.onclick = () => handleFurnaceClick(2);
+            resultEl.appendChild(resultSlot);
+        }
+
+        function handleFurnaceClick(index) {
+            if (furnaceHeldItemIndex === -1) {
+                if (furnaceInventory[index].id !== 0) furnaceHeldItemIndex = index;
+            } else {
+                // If clicking the same slot, deselect
+                if (furnaceHeldItemIndex === index) {
+                    furnaceHeldItemIndex = -1;
+                } else {
+                    // Swap
+                    let temp = furnaceInventory[index];
+                    furnaceInventory[index] = furnaceInventory[furnaceHeldItemIndex];
+                    furnaceInventory[furnaceHeldItemIndex] = temp;
+                    furnaceHeldItemIndex = -1;
+                }
+            }
+            renderFurnaceMenu();
+        }
+
         function renderInventoryMenu() {
             const storageEl = document.getElementById('invStorage'); const hotbarEl = document.getElementById('invHotbar'); const craftingEl = document.getElementById('craftingList');
             storageEl.innerHTML = ''; hotbarEl.innerHTML = ''; craftingEl.innerHTML = '';
@@ -950,6 +989,8 @@
                 }
             }
             if (miningState.active) updateMining();
+            updateSmelting();
+
             let moveSpeed = player.spectator ? 2 : 1;
             if (keys['KeyA'] || keys['ArrowLeft']) player.vx -= moveSpeed;
             if (keys['KeyD'] || keys['ArrowRight']) player.vx += moveSpeed;
@@ -1035,6 +1076,63 @@
                 targetArray[x][y] = 0;
                 let dropId = DROPS[blockToBreak] !== undefined ? DROPS[blockToBreak] : blockToBreak;
                 if (dropId !== 0) { addToInventory(dropId); updateHUD(); }
+                if (activeFurnacePos && activeFurnacePos.x === x && activeFurnacePos.y === y) {
+                    if (isFurnaceOpen) toggleFurnace();
+                    activeFurnacePos = null;
+                }
+            }
+        }
+
+        function updateSmelting() {
+            // Check if furnace is active in the world
+            let hasFurnace = false;
+            if (activeFurnacePos) {
+                if (world[activeFurnacePos.x][activeFurnacePos.y] === 25) {
+                    hasFurnace = true;
+                } else {
+                    activeFurnacePos = null;
+                    if (isFurnaceOpen) toggleFurnace();
+                }
+            }
+
+            if (!hasFurnace) return;
+
+            let top = furnaceInventory[0];
+            let bottom = furnaceInventory[1];
+            let result = furnaceInventory[2];
+
+            // Smelting rules: Top = ore (13=Iron, 15=Gold, 16=Copper), Bottom = Coal (18)
+            let canSmelt = false;
+            let resultId = 0;
+
+            if (top.count > 0 && bottom.count > 0 && bottom.id === 18) {
+                if (top.id === 13) { canSmelt = true; resultId = 26; } // Iron
+                else if (top.id === 15) { canSmelt = true; resultId = 27; } // Gold
+                else if (top.id === 16) { canSmelt = true; resultId = 28; } // Copper
+            }
+
+            if (canSmelt) {
+                // Check if result slot can accept it
+                if (result.id === 0 || (result.id === resultId && result.count < 64)) {
+                    furnaceSmeltTimer++;
+                    if (furnaceSmeltTimer >= 100) { // Time to smelt 1 item
+                        furnaceSmeltTimer = 0;
+                        top.count--;
+                        if (top.count <= 0) { top.id = 0; top.count = 0; }
+
+                        bottom.count--;
+                        if (bottom.count <= 0) { bottom.id = 0; bottom.count = 0; }
+
+                        result.id = resultId;
+                        result.count++;
+
+                        if (isFurnaceOpen) renderFurnaceMenu();
+                    }
+                } else {
+                    furnaceSmeltTimer = 0;
+                }
+            } else {
+                furnaceSmeltTimer = 0;
             }
         }
         function handleRightClick() {
