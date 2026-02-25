@@ -1110,13 +1110,6 @@
                     if (x >= 0 && x < WORLD_WIDTH && y >= 0 && y < WORLD_HEIGHT) {
                         let px = Math.floor(x * TILE_SIZE - camera.x); let py = Math.floor(y * TILE_SIZE - camera.y);
 
-                        // Basic Lighting Calculation
-                        let dist = Math.hypot(x - pcx, y - pcy);
-                        // Sky Access?
-                        let exposed = true;
-                        // Simple "cave" darkness check: if below certain depth and far from player
-                        if (y > 40 && dist > 8) exposed = false;
-
                         if (backWorld[x][y] !== 0) {
                             drawBlock(ctx, backWorld[x][y], px, py); ctx.fillStyle = "rgba(0,0,0,0.5)"; ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
                         }
@@ -1127,12 +1120,6 @@
                             let pct = miningState.progress / BLOCKS[miningState.targetId].hardness; if (pct > 1) pct = 1;
                             let size = TILE_SIZE * pct; let offset = (TILE_SIZE - size) / 2;
                             ctx.fillStyle = "rgba(0,0,0,0.5)"; ctx.fillRect(px + offset, py + offset, size, size);
-                        }
-
-                        // Apply Darkness Mask
-                        if (!exposed) {
-                            ctx.fillStyle = "black";
-                            ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
                         }
                     }
                 }
